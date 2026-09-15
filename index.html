@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gym Room Queue Manager</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --accent-green: #4caf50;
+            --accent-blue: #2196f3;
+            --text-main: #ffffff;
+            --text-sub: #aaaaaa;
+            --border: #333333;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-main); padding: 20px; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); padding-bottom: 15px; margin-bottom: 20px; }
+        h1 { font-size: 24px; color: var(--text-main); }
+        .view-toggle { display: flex; gap: 10px; }
+        button { padding: 10px 20px; font-weight: bold; border-radius: 6px; cursor: pointer; border: none; font-size: 14px; }
+        .btn-toggle { background-color: var(--card-bg); color: var(--text-sub); border: 1px solid var(--border); }
+        .btn-toggle.active { background-color: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+        .btn-action { background-color: var(--accent-green); color: #fff; width: 100%; padding: 14px; font-size: 16px; margin-top: 10px; }
+        .btn-clear { background-color: #d32f2f; color: #fff; padding: 6px 12px; font-size: 13px; }
+        .setup-banner { background: #332200; border: 1px solid #ff9800; padding: 15px; border-radius: 8px; margin-bottom: 20px; line-height: 1.5; font-size: 14px; }
+        .setup-banner code { background: #221100; padding: 2px 6px; border-radius: 4px; color: #ff9800; font-family: monospace; font-size: 13px; }
+        .admin-layout { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+        @media(max-width: 768px) { .admin-layout { grid-template-columns: 1fr; } }
+        .card { background-color: var(--card-bg); border: 1px solid var(--border); padding: 20px; border-radius: 8px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 6px; color: var(--text-sub); font-size: 14px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid var(--border); background-color: var(--bg-color); color: #fff; border-radius: 6px; font-size: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-sub); font-weight: 600; font-size: 14px; }
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: #333; }
+        .badge-waiting { background-color: #ff9800; color: #000; }
+        .badge-ready { background-color: var(--accent-green); color: #fff; }
+        .tv-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px; }
+        .tv-col { background: var(--card-bg); border-radius: 12px; padding: 25px; border: 1px solid var(--border); }
+        .tv-col h2 { font-size: 28px; padding-bottom: 15px; margin-bottom: 20px; border-bottom: 3px solid var(--border); text-align: center; }
+        .tv-col-waiting h2 { color: #ff9800; border-bottom-color: #ff9800; }
+        .tv-col-ready h2 { color: var(--accent-green); border-bottom-color: var(--accent-green); }
+        .tv-list { display: flex; flex-direction: column; gap: 15px; }
+        .tv-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 20px; border-radius: 8px; border-left: 6px solid #ff9800; }
+        .tv-col-ready .tv-row { border-left-color: var(--accent-green); animation: pulse 2s infinite alternate; }
+        .tv-code { font-size: 36px; font-weight: 900; font-family: monospace; }
+        .tv-room { font-size: 20px; color: var(--text-sub); font-weight: 600; }
+        @keyframes pulse { 0% { box-shadow: 0 0 5px rgba(76,175,80,0.2); } 100% { box-shadow: 0 0 20px rgba(76,175,80,0.6); } }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="setupBanner" class="setup-banner">
+        <strong>⚠️ Database Activation Required for Live Sync:</strong> 
+        To make your 4 iPads and TV synchronize in real time for free, log into <a href="https://supabase.com" target="_blank" style="color: #2196f3; font-weight:bold;">Supabase.com</a>, create a free project, run this SQL command: <code>create table queue (id bigint generated always as identity primary key, code text, room text, status text, created_at timestamp with time zone default timezone('utc'::text, now()));</code>, and paste your free database credentials into lines 63 & 64 of this file's code.
+    </div>
+
+    <header>
+        <h1 id="appTitle">Gym Queue Terminal</h1>
+        <div class="view-toggle">
+            <button id="btnAdmin" class="btn-toggle active" onclick="switchView('admin')">📱 iPad Admin View</button>
+            <button id="btnTv" class="btn-toggle" onclick="switchView('tv')">📺 TV Screen View</button>
+        </div>
+    </header>
+
+    <!-- IPAD ADMIN LAYOUT -->
+    <div id="viewAdmin" class="admin-layout">
+        <div class="card">
+            <h2>Add To Queue</h2>
+            <div class="form-group" style="margin-top:15px;">
+                <label>Ticket / Number Code</label>
+                <input type="text" id="inputCode" placeholder="e.g., L31" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>Target Location</label>
+                <select id="selectRoom">
+                    <option value="RR/ regular room">RR/ regular room</option>
+                    <option value="VR/Deluxe room">VR/Deluxe room</option>
+                    <option value="Special/Mirror Room">Special/Mirror Room</option>
+                </select>
+            </div>
+            <button class="btn-action" onclick="addToQueue()">Add to Board</button>
+        </div>
+
+        <div class="card">
+            <h2>Active Management Panel</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Code Number</th>
+                        <th>Room Selection</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="adminTableBody">
+                    <!-- Dynamic Rows -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CUSTOMER TV LAYOUT -->
+    <div id="viewTv" class="tv-layout hidden">
+        <div class="tv-col tv-col-waiting">
+            <h2>WAITING</h2>
+            <div id="tvWaitingList" class="tv-list"></div>
+        </div>
+        <div class="tv-col tv-col-ready">
+            <h2>NOW READY</h2>
+            <div id="tvReadyList" class="tv-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- 100% FREE DATABASE CONNECTION CONFIGURATION ---
+        // Replace these empty strings with your free keys from Supabase dashboard to link your iPads
+        const SUPABASE_URL = ""; 
+        const SUPABASE_KEY = ""; 
+        
+        let supabaseClient = null;
+        let localQueue = [];
+
+        if (SUPABASE_URL && SUPABASE_KEY) {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            document.getElementById('setupBanner').classList.add('hidden');
+        }
+
+        async function init() {
+            await fetchQueue();
+            if (supabaseClient) {
+                supabaseClient.channel('schema-db-changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'queue' }, () => {
+                    fetchQueue();
+                }).subscribe();
+            }
+        }
+
+        async function fetchQueue() {
+            if (supabaseClient) {
+                const { data } = await supabaseClient.from('queue').select('*').order('created_at', { ascending: true });
+                localQueue = data || [];
+            }
+            renderUI();
+        }
+
+        async function addToQueue() {
+            const codeInput = document.getElementById('inputCode');
+            const roomSelect = document.getElementById('selectRoom');
+            if (!codeInput.value.trim()) return;
+
+            const newItem = { code: codeInput.value.trim().toUpperCase(), room: roomSelect.value, status: 'Waiting' };
+
+            if (supabaseClient) {
+                await supabaseClient.from('queue').insert([newItem]);
+            } else {
+                newItem.id = Date.now();
+                localQueue.push(newItem);
+            }
+            codeInput.value = "";
+            renderUI();
+        }
+
+        async function updateStatus(id, currentStatus) {
+            const nextStatus = currentStatus === 'Waiting' ? 'Ready' : 'Clear';
+            if (supabaseClient) {
+                if (nextStatus === 'Clear') {
+                    await supabaseClient.from('queue').delete().eq('id', id);
+                } else {
+                    await supabaseClient.from('queue').update({ status: nextStatus }).eq('id', id);
+                }
+            } else {
+                if (nextStatus === 'Clear') {
+                    localQueue = localQueue.filter(item => item.id !== id);
+                } else {
+                    const item = localQueue.find(item => item.id === id);
+                    if (item) item.status = nextStatus;
+                }
+            }
+            renderUI();
+        }
+
+        function renderUI() {
+            const adminBody = document.getElementById('adminTableBody');
+            const tvWaiting = document.getElementById('tvWaitingList');
+            const tvReady = document.getElementById('tvReadyList');
+
+            adminBody.innerHTML = '';
+            tvWaiting.innerHTML = '';
+            tvReady.innerHTML = '';
+
+            localQueue.forEach(item => {
+                // Admin Table Row
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${item.code}</strong></td>
+                    <td>${item.room}</td>
+                    <td><span class="badge ${item.status === 'Waiting' ? 'badge-waiting' : 'badge-ready'}">${item.status}</span></td>
+                    <td>
+                        <button class="btn-clear" onclick="updateStatus(${item.id}, '${item.status}')">
+                            ${item.status === 'Waiting' ? 'Mark Ready' : 'Clear'}
+                        </button>
+                    </td>
+                `;
+                adminBody.appendChild(row);
+
+                // TV Display
+                const tvRow = document.createElement('div');
+                tvRow.className = 'tv-row';
+                tvRow.innerHTML = `
+                    <div>
+                        <div class="tv-code">${item.code}</div>
+                        <div class="tv-room">${item.room}</div>
+                    </div>
+                `;
+
+                if (item.status === 'Waiting') {
+                    tvWaiting.appendChild(tvRow);
+                } else if (item.status === 'Ready') {
+                    tvReady.appendChild(tvRow);
+                }
+            });
+        }
+
+        function switchView(view) {
+            const adminView = document.getElementById('viewAdmin');
+            const tvView = document.getElementById('viewTv');
+            const btnAdmin = document.getElementById('btnAdmin');
+            const btnTv = document.getElementById('btnTv');
+
+            if (view === 'admin') {
+                adminView.classList.remove('hidden');
+                tvView.classList.add('hidden');
+                btnAdmin.classList.add('active');
+                btnTv.classList.remove('active');
+            } else {
+                adminView.classList.add('hidden');
+                tvView.classList.remove('hidden');
+                btnAdmin.classList.remove('active');
+                btnTv.classList.add('active');
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
